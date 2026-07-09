@@ -29,6 +29,9 @@ import { AiChatView } from "@/components/views/ai-chat-view"
 import { AiScanView } from "@/components/views/ai-scan-view"
 import { LogsView } from "@/components/views/logs-view"
 import { AccountsView } from "@/components/views/accounts-view"
+import { Dialog, DialogTrigger, DialogPortal, DialogBackdrop, DialogViewport, DialogPopup, DialogTitle, DialogClose } from "@/components/ui/dialog"
+import { QrScanner } from "@/components/ui/qr-scanner"
+import { getMaterialByCode } from "@/lib/api"
 
 type ViewKey =
   | "dashboard"
@@ -46,7 +49,7 @@ const navGroups: { label: string; items: { key: ViewKey; name: string; icon: typ
   {
     label: "总览",
     items: [
-      { key: "dashboard", name: "仪表盘", icon: LayoutDashboard },
+      { key: "dashboard", name: "首页", icon: LayoutDashboard },
       { key: "alerts", name: "库存预警", icon: TriangleAlert },
     ],
   },
@@ -76,7 +79,7 @@ const navGroups: { label: string; items: { key: ViewKey; name: string; icon: typ
 ]
 
 const titles: Record<ViewKey, string> = {
-  dashboard: "仪表盘",
+  dashboard: "首页",
   inventory: "物资台账",
   inbound: "入库记录",
   issue: "领用记录",
@@ -93,6 +96,8 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
   const [toast, setToast] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [showScanDialog, setShowScanDialog] = useState(false)
+  const [scannedMaterial, setScannedMaterial] = useState<{ code: string; name: string } | null>(null)
 
   const notify = useCallback((msg: string) => {
     setToast(msg)
@@ -173,6 +178,48 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
           </div>
 
           <div className="flex items-center gap-2">
+            <Dialog open={showScanDialog} onOpenChange={setShowScanDialog}>
+              <DialogTrigger>
+                <button
+                  className="flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+                >
+                  <ScanLine className="size-4" />
+                  <span className="hidden sm:inline">扫一扫</span>
+                </button>
+              </DialogTrigger>
+              <DialogPortal>
+                <DialogBackdrop className="fixed inset-0 z-50 bg-black/40" />
+                <DialogViewport className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                  <DialogPopup className="max-w-lg w-full">
+                    <DialogTitle className="text-base font-semibold">扫码入库</DialogTitle>
+                    <div className="mt-4">
+                      <QrScanner
+                        onScanSuccess={async (code) => {
+                          console.log("扫描到二维码:", code)
+                          notify(`识别到物资编码: ${code}`)
+                          
+                          const material = await getMaterialByCode(code)
+                          if (material) {
+                            setScannedMaterial({ code: material.code, name: material.name })
+                            setShowScanDialog(false)
+                            notify(`找到物资: ${material.name}`)
+                            setView("inbound")
+                          } else {
+                            notify(`未找到编码为 ${code} 的物资`)
+                          }
+                        }}
+                        onScanError={(error) => {
+                          console.error("扫码错误:", error)
+                          notify("扫码失败，请重试")
+                        }}
+                        onClose={() => setShowScanDialog(false)}
+                      />
+                    </div>
+                  </DialogPopup>
+                </DialogViewport>
+              </DialogPortal>
+            </Dialog>
+
             <button
               onClick={handleRefresh}
               className="flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
@@ -244,7 +291,7 @@ export function AppShell({ onLogout }: { onLogout: () => void }) {
         <main className="flex-1 px-5 py-6 sm:px-8">
           {view === "dashboard" && <DashboardView onNavigate={(k) => setView(k as ViewKey)} />}
           {view === "inventory" && <InventoryView notify={notify} />}
-          {view === "inbound" && <InboundView notify={notify} />}
+          {view === "inbound" && <InboundView notify={notify} scannedMaterial={scannedMaterial} />}
           {view === "issue" && <IssueView notify={notify} />}
           {view === "alerts" && <AlertsView />}
           {view === "qrcode" && <QrcodeView />}
